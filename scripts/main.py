@@ -79,17 +79,27 @@ class Main(scripts.Script):
     
     def update_click(self):
         try:
-            response = manager.session.get("{}user/balance".format(manager.api_endpoint), headers={"Authorization": manager.api_key})
-            assert response.status_code == 200, "Status Code: {} (expected {})".format(response.status_code, 200)
+            response = manager.session.get(
+                f"{manager.api_endpoint}user/balance",
+                headers={"Authorization": manager.api_key},
+            )
+            assert (
+                response.status_code == 200
+            ), f"Status Code: {response.status_code} (expected 200)"
             prev_credits = manager.credits
             manager.credits = "{:.2f}".format(response.json()["credits"])
-            response = manager.session.get("{}user/account".format(manager.api_endpoint), headers={"Authorization": manager.api_key})
-            assert response.status_code == 200, "Status Code: {} (expected {})".format(response.status_code, 200)
+            response = manager.session.get(
+                f"{manager.api_endpoint}user/account",
+                headers={"Authorization": manager.api_key},
+            )
+            assert (
+                response.status_code == 200
+            ), f"Status Code: {response.status_code} (expected 200)"
             manager.email = response.json()["email"]
             used = ''
-            if float(prev_credits) != 0 and float(prev_credits) != float(manager.credits):
-                used = ', Last Request Cost: {}'.format(round(float(prev_credits) - float(manager.credits),2))
-            return "Stability API Account Credits: {}".format(manager.credits) + used
+            if float(prev_credits) not in [0, float(manager.credits)]:
+                used = f', Last Request Cost: {round(float(prev_credits) - float(manager.credits), 2)}'
+            return f"Stability API Account Credits: {manager.credits}{used}"
         except Exception as e:
             return "Don't forget to set up your Stability API key!"
 
@@ -142,15 +152,23 @@ class Main(scripts.Script):
     def update_api_message(self):
         global error_message, info_message
         if error_message:
-            return "\tStability API: {}".format(error_message)
-        if info_message:
-            return "\tStability API Info: {}".format(info_message)
-        return ""
+            return f"\tStability API: {error_message}"
+        return f"\tStability API Info: {info_message}" if info_message else ""
 
     def after_component(self, component, **kwargs):
         for k, v in kwargs.items():
             if k == "elem_id":
-                if v == ("html_info_txt2img"):
+                if v == "html_info_img2img":
+                    with gradio.Row(elem_id="stability_api_message_row_img2img"):
+                        api_errors_img2img = gradio.HTML(label="SAPI Messages", show_label=True, elem_id="stability_api_messages_img2img", interactive=False)
+                        component.change(self.update_api_message, inputs=None, outputs=api_errors_img2img)
+                    with gradio.Row(elem_id="stability_credits_row"):
+                        credits_img2img = gradio.Textbox(self.update_click(), show_label=False, elem_id="stability_credits", interactive=False)
+                        credits_img2img.style(container=False)
+                        update_img2img = gradio.Button("\U0001f504", elem_id="stability_update")
+                        update_img2img.click(fn=self.update_click, outputs=credits_img2img)
+                        component.change(fn=self.update_click, outputs=credits_img2img)
+                elif v == "html_info_txt2img":
                     with gradio.Row(elem_id="stability_api_message_row"):
                         api_errors = gradio.HTML(label="SAPI Messages", show_label=True, elem_id="stability_api_messages", interactive=False)
                         component.change(self.update_api_message, inputs=None, outputs=api_errors)
@@ -161,25 +179,15 @@ class Main(scripts.Script):
                         update.click(fn=self.update_click, outputs=credits)
                         component.change(fn=self.update_click, outputs=credits)    
 
-                if v == ("html_info_img2img"):
-                    with gradio.Row(elem_id="stability_api_message_row_img2img"):
-                        api_errors_img2img = gradio.HTML(label="SAPI Messages", show_label=True, elem_id="stability_api_messages_img2img", interactive=False)
-                        component.change(self.update_api_message, inputs=None, outputs=api_errors_img2img)   
-                    with gradio.Row(elem_id="stability_credits_row"):
-                        credits_img2img = gradio.Textbox(self.update_click(), show_label=False, elem_id="stability_credits", interactive=False)
-                        credits_img2img.style(container=False)
-                        update_img2img = gradio.Button("\U0001f504", elem_id="stability_update")
-                        update_img2img.click(fn=self.update_click, outputs=credits_img2img)
-                        component.change(fn=self.update_click, outputs=credits_img2img)         
-                if v == "img2img_tiling":
+                elif v == "img2img_tiling":
                     global cg_i2i
                     cg_i2i_box = gradio.Checkbox(value=False, label="Clip Guidance (SAPI Only)", elem_id="stability_clip_guidance_img2img", visible=True, interactive=True)
                     cg_i2i_box.change(self.update_cg_i2i, inputs=cg_i2i_box)
-                if v == "txt2img_enable_hr":
+                elif v == "txt2img_enable_hr":
                     global cg
                     cg_box = gradio.Checkbox(value=False, label="Clip Guidance (SAPI Only)", elem_id="stability_clip_guidance", visible=True, interactive=True)
                     cg_box.change(self.update_cg, inputs=cg_box)
-                    
+
                 if v in manager.NON_API_COMPONENTS and manager.remove_non_api_components:
                     component.visible = False
                     component.interactive = False
@@ -188,11 +196,14 @@ class Main(scripts.Script):
 
     def process_images(self, p, model):
         global cg, cg_i2i, info_message, error_message
-        
-        if p.sampler_name not in self.SAMPLERS.keys():
-            self.halt_process(p, "Sampler {} not supported by API, please use one of the following: {}".format(p.sampler_name, ", ".join(self.SAMPLERS.keys())))
 
-        
+        if p.sampler_name not in self.SAMPLERS.keys():
+            self.halt_process(
+                p,
+                f'Sampler {p.sampler_name} not supported by API, please use one of the following: {", ".join(self.SAMPLERS.keys())}',
+            )
+
+
         devices.torch_gc()
         self.processing = True
         error_message = None
@@ -222,20 +233,18 @@ class Main(scripts.Script):
     def process_images_inner(self, p, model):
         # Copyright (C) 2023  AUTOMATIC1111
         # https://github.com/AUTOMATIC1111/stable-diffusion-webui/blob/00dab8f10defbbda579a1bc89c8d4e972c58a20d/modules/processing.py#L501-L717
-    
-        fake_model = FakeModel(model)
-        if type(p) == processing.StableDiffusionProcessingImg2Img:
-            self.is_img2img = True
-        else:
-            self.is_img2img = False
 
-        if "inpainting" in model and (self.is_img2img is False or getattr(p, "image_mask", None) is None): 
-                self.halt_process(p, "Inpainting model is for inpainting only")
-                
+        fake_model = FakeModel(model)
+        self.is_img2img = type(p) == processing.StableDiffusionProcessingImg2Img
+        if "inpainting" in model and (
+            not self.is_img2img or getattr(p, "image_mask", None) is None
+        ): 
+            self.halt_process(p, "Inpainting model is for inpainting only")
+
 
         #if p.n_iter > 10:
         #    self.halt_process(p, "Please keep batch count <= 10")
-        
+
         if type(p.prompt) == list:
             assert(len(p.prompt) > 0)
         else:
@@ -290,7 +299,7 @@ class Main(scripts.Script):
 
         if p.scripts is not None:
             p.scripts.process(p)
-        
+
         infotexts = []
         output_images = []
 
@@ -356,14 +365,14 @@ class Main(scripts.Script):
 
                         x_sample = modules.face_restoration.restore_faces(x_sample)
                         devices.torch_gc()
-                    
+
                     image = PIL.Image.fromarray(x_sample)
 
                     if p.scripts is not None:
                         pp = scripts.PostprocessImageArgs(image)
                         p.scripts.postprocess_image(p, pp)
                         image = pp.image
-                    
+
 
                     if p.color_corrections is not None and i < len(p.color_corrections):
                         if shared.opts.save and not p.do_not_save_samples and shared.opts.save_images_before_color_correction:
@@ -458,9 +467,9 @@ class Main(scripts.Script):
         }
 
         p.extra_generation_params["Sampler"] = p.sampler_name
-        
+
         files = {}
-        
+
         if self.is_img2img:
             _, _, image = resize_image(p.init_images[0])
 
@@ -479,7 +488,7 @@ class Main(scripts.Script):
             if len(negative_prompt) > 0:
                 img2img_payload["text_prompts[1][text]"] = negative_prompt 
                 img2img_payload["text_prompts[1][weight]"] = -1.0 
-                
+
             buffer = io.BytesIO()
             image.save(buffer, format="PNG")
             files["init_image"] = buffer.getvalue()
@@ -494,14 +503,14 @@ class Main(scripts.Script):
                 img2img_payload["mask_source"] = "MASK_IMAGE_BLACK"
             else:
                 img2img_payload["image_strength"] = 1 - p.denoising_strength,
-            
+
             payload = img2img_payload
 
         if shared.state.skipped or shared.state.interrupted:
             return (None, None)
 
         try:
-            gen_type = "text-to-image" if not self.is_img2img else "image-to-image"
+            gen_type = "image-to-image" if self.is_img2img else "text-to-image"
             masking = "/masking" if self.is_img2img and p.image_mask is not None else ''
 
             url = "{}generation/{}/{}{}".format(manager.api_endpoint, model, gen_type, masking)
@@ -512,18 +521,18 @@ class Main(scripts.Script):
                 url,
                 headers={
                     "Accept": "application/json" if self.is_img2img else None,
-                    "Authorization": f"Bearer {manager.api_key}"
-                },  
+                    "Authorization": f"Bearer {manager.api_key}",
+                },
                 files=files if self.is_img2img else None,
                 data=payload if self.is_img2img else None,
-                json=payload if not self.is_img2img else None,
+                json=None if self.is_img2img else payload,
             )
 
 
             assert response.status_code == 200, "Status Code: {} (expected {})".format(response.status_code, 200)
-            
+
             response = response.json()
-                
+
             images = response
             images = images["artifacts"]
 
@@ -534,7 +543,7 @@ class Main(scripts.Script):
             print(f"Returned {len(images)} image" + ("s" if len(images) > 1 else ''))
 
             return images                 
-        
+
         except AssertionError:
             id = response.json()
             self.halt_process(p, id["message"])

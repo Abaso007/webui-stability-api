@@ -90,12 +90,20 @@ class API_Manager():
         try:
             for filename in os.listdir(sd_models.model_path):
                 if "SAPI.safetensors" in filename:
-                    os.remove(os.path.join(sd_models.model_path, filename))  
-            models = requests.get("{}engines/list".format(self.api_endpoint), headers={"Authorization": self.api_key})  
+                    os.remove(os.path.join(sd_models.model_path, filename))
+            models = requests.get(
+                f"{self.api_endpoint}engines/list",
+                headers={"Authorization": self.api_key},
+            )
             models = models.json()
-            formatted_models = ["{}".format(m["id"]) for m in models]
+            formatted_models = [f'{m["id"]}' for m in models]
             for model in formatted_models:
-                shutil.copy2(os.path.join(sapi_dir, 'Dummy.safetensors'), os.path.join(sd_models.model_path, model + '.SAPI.safetensors'))
+                shutil.copy2(
+                    os.path.join(sapi_dir, 'Dummy.safetensors'),
+                    os.path.join(
+                        sd_models.model_path, f'{model}.SAPI.safetensors'
+                    ),
+                )
             shared.refresh_checkpoints()
             sd_models.list_models()
         except Exception as e:
